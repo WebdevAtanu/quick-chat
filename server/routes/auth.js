@@ -4,6 +4,12 @@ import Chat from '../models/Chat.js';
 
 const router = express.Router();
 
+let io; // Will be set from server
+
+export const setAuthIO = (socketIO) => {
+  io = socketIO;
+};
+
 router.post('/register', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -18,6 +24,17 @@ router.post('/register', async (req, res) => {
     }
 
     const user = await User.create({ username, password });
+
+    // Notify all connected clients about new user
+    if (io) {
+      io.emit('userRegistered', {
+        userId: user._id,
+        username: user.username,
+        isOnline: false,
+        lastSeen: user.lastSeen,
+      });
+    }
+
     res.status(201).json({ message: 'User registered successfully', userId: user._id });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });

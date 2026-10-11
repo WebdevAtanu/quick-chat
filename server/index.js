@@ -4,7 +4,7 @@ import { Server } from 'socket.io';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import { connectDB } from './config/db.js';
-import authRoutes from './routes/auth.js';
+import authRoutes, { setAuthIO } from './routes/auth.js';
 import groupRoutes, { setGroupIO } from './routes/groups.js';
 import User from './models/User.js';
 import Chat from './models/Chat.js';
@@ -20,6 +20,7 @@ const io = new Server(server, {
     },
 });
 
+setAuthIO(io);
 setGroupIO(io);
 
 app.use(cors({

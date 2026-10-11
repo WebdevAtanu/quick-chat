@@ -33,11 +33,9 @@ router.post('/create', async (req, res) => {
     await group.populate('members', 'username');
     await group.populate('createdBy', 'username');
 
-    // Notify all members about the new group
+    // Notify all connected clients about the new group
     if (io) {
-      allMemberIds.forEach(memberId => {
-        io.emit('groupCreated', { group, userId: memberId });
-      });
+      io.emit('groupCreated', { group });
     }
 
     res.status(201).json(group);

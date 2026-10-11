@@ -28,6 +28,19 @@ export default function App() {
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [groupName, setGroupName] = useState("");
   const [selectedMembers, setSelectedMembers] = useState([]);
+  const [darkMode, setDarkMode] = useState(() => {
+    return localStorage.getItem("darkMode") === "true";
+  });
+  const [showSidebar, setShowSidebar] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem("darkMode", darkMode);
+    if (darkMode) {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+  }, [darkMode]);
 
   useEffect(() => {
     selectedGroupRef.current = selectedGroup;
@@ -105,11 +118,19 @@ export default function App() {
       }
     });
 
-    socket.current.on("groupCreated", ({ group, userId: notifiedUserId }) => {
-      if (notifiedUserId === userId) {
-        fetchGroups(userId);
+    socket.current.on("groupCreated", ({ group }) => {
+      if (group.members.some((member) => member._id === userId)) {
+        setGroups((prev) => {
+          if (prev.some((g) => g._id === group._id)) return prev;
+          return [...prev, group];
+        });
         toast.info(`New group created: ${group.name}`);
       }
+    });
+
+    socket.current.on("userRegistered", (newUser) => {
+      setUsers((prev) => [...prev, newUser]);
+      toast.info(`New user joined: ${newUser.username}`);
     });
 
     return () => {
@@ -306,7 +327,7 @@ export default function App() {
     <>
       <ToastContainer position="top-right" autoClose={2000} />
 
-      <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-gray-100 to-gray-200 p-4">
+      <div className="h-screen bg-linear-to-br from-gray-100 to-gray-200">
         {/* AUTH POPUP */}
         {showAuthPopup && (
           <div className="fixed inset-0 flex items-center justify-center bg-black/20 backdrop-blur-sm">
@@ -357,17 +378,54 @@ export default function App() {
 
         {/* CHAT */}
         {!showAuthPopup && (
-          <div className="w-full max-w-4xl h-[90vh] bg-white rounded-2xl shadow-xl flex overflow-hidden">
+          <div className="w-full h-full bg-white flex overflow-hidden relative">
+            {/* MOBILE OVERLAY */}
+            {showSidebar && (
+              <div
+                onClick={() => setShowSidebar(false)}
+                className="md:hidden fixed inset-0 bg-black/50 z-10"
+              />
+            )}
+
+            {/* MOBILE MENU BUTTON */}
+            <button
+              onClick={() => setShowSidebar(!showSidebar)}
+              className="md:hidden absolute top-4 left-4 z-20 p-2 bg-white rounded-lg shadow-lg border border-gray-300"
+            >
+              ☰
+            </button>
+
             {/* USERS SIDEBAR */}
-            <div className="w-64 border-r border-r-gray-300 bg-gray-50 flex flex-col">
+            <div
+              className={`w-64 border-r border-r-gray-300 bg-gray-50 flex flex-col fixed md:relative h-full z-20 transition-transform duration-300 ${showSidebar ? "translate-x-0" : "-translate-x-full md:translate-x-0"}`}
+            >
               <div className="p-4 border-b border-b-gray-300 bg-white flex items-center justify-between">
                 <h2 className="font-semibold text-sm">Chats</h2>
-                <button
-                  onClick={() => setShowGroupModal(true)}
-                  className="text-xs bg-green-500 text-white px-2 py-1 rounded hover:bg-green-600"
-                >
-                  + Group
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      fetchUsers();
+                      fetchGroups(userId);
+                      toast.success("Lists refreshed");
+                    }}
+                    className="text-xs bg-gray-200 text-gray-700 px-2 py-1 rounded hover:bg-gray-300"
+                    title="Refresh lists"
+                  >
+                    ↻
+                  </button>
+                  <button
+                    onClick={() => setShowGroupModal(true)}
+                    className="text-xs bg-green-500 text-white px-2 py-1 rounded hover:bg-green-600"
+                  >
+                    + Group
+                  </button>
+                  <button
+                    onClick={() => setShowSidebar(false)}
+                    className="md:hidden text-xs bg-gray-200 text-gray-700 px-2 py-1 rounded hover:bg-gray-300"
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
               <div className="flex-1 overflow-y-auto p-2">
                 {/* Current User Profile */}
@@ -393,6 +451,7 @@ export default function App() {
                         setMessages([]);
                         setMessageIds(new Set());
                         fetchChatHistory(user._id);
+                        setShowSidebar(false);
                       }}
                       className={`p-3 rounded-lg cursor-pointer mb-2 ${
                         selectedUser?._id === user._id
@@ -434,6 +493,7 @@ export default function App() {
                           setMessageIds(new Set());
                           fetchGroupMessages(group._id);
                           socket.current.emit("joinGroup", group._id);
+                          setShowSidebar(false);
                         }}
                         className={`p-3 rounded-lg cursor-pointer mb-2 ${
                           selectedGroup?._id === group._id
@@ -460,22 +520,48 @@ export default function App() {
             {/* CHAT AREA */}
             <div className="flex-1 flex flex-col">
               {/* HEADER */}
-              <div className="flex items-center justify-between px-5 py-4 border-b border-b-gray-300 bg-white">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-b-gray-300 bg-white md:pl-5 pl-16">
                 <div>
-                  <h1 className="font-semibold text-sm">
-                    {selectedUser
-                      ? selectedUser.username
-                      : selectedGroup
-                        ? selectedGroup.name
-                        : "Select a user or group to chat"}
-                  </h1>
+                  <div className="flex items-center gap-2">
+                    {(selectedUser || selectedGroup) && (
+                      <button
+                        onClick={() => {
+                          setSelectedUser(null);
+                          setSelectedGroup(null);
+                          setMessages([]);
+                          setMessageIds(new Set());
+                        }}
+                        className="md:hidden text-sm p-1 hover:bg-gray-100 rounded"
+                      >
+                        ←
+                      </button>
+                    )}
+                    <h1 className="font-semibold text-sm">
+                      {selectedUser
+                        ? selectedUser.username
+                        : selectedGroup
+                          ? selectedGroup.name
+                          : "Select a user or group to chat"}
+                    </h1>
+                  </div>
                   {typers.length > 0 && (
                     <p className="text-[10px] text-gray-500">
                       {typers.join(", ")} typing...
                     </p>
                   )}
                 </div>
-                <span className="text-sm text-gray-500">{userName}</span>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setDarkMode(!darkMode)}
+                    className="text-sm p-2 rounded-full hover:bg-gray-100 transition"
+                    title="Toggle dark mode"
+                  >
+                    {darkMode ? "☀️" : "🌙"}
+                  </button>
+                  <span className="text-sm text-gray-500 hidden sm:inline">
+                    {userName}
+                  </span>
+                </div>
               </div>
 
               {/* MESSAGES */}
@@ -490,7 +576,7 @@ export default function App() {
                       className={`flex ${mine ? "justify-end" : "justify-start"}`}
                     >
                       <div
-                        className={`max-w-[50%] px-4 py-2 rounded-2xl text-sm shadow ${
+                        className={`max-w-[70%] md:max-w-[50%] px-4 py-2 rounded-2xl text-sm shadow ${
                           mine
                             ? isGroupMessage
                               ? "bg-blue-500 text-white rounded-br-sm"
@@ -529,7 +615,7 @@ export default function App() {
                   />
                   <button
                     onClick={sendMessage}
-                    className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 transition cursor-pointer"
+                    className="bg-green-500 text-white px-3 py-2 md:px-4 md:py-2 rounded hover:bg-green-600 transition cursor-pointer text-sm md:text-base"
                     disabled={!selectedUser && !selectedGroup}
                   >
                     Send
