@@ -46,9 +46,9 @@ io.on('connection', (socket) => {
         if (user) {
             socket.userName = user.username;
             onlineUsers.set(userId, socket.id);
-            
+
             await User.findByIdAndUpdate(userId, { isOnline: true, lastSeen: new Date() });
-            
+
             io.emit('userOnline', { userId, username: user.username });
             io.emit('usersList', await getUsersList());
         }
@@ -56,7 +56,7 @@ io.on('connection', (socket) => {
 
     socket.on('chatMessage', async (data) => {
         const { senderId, receiverId, message } = data;
-        
+
         const chat = await Chat.create({
             sender: senderId,
             receiver: receiverId,
@@ -141,7 +141,7 @@ io.on('connection', (socket) => {
 
         if (socket.userId) {
             onlineUsers.delete(socket.userId);
-            
+
             const groups = userGroups.get(socket.userId);
             if (groups) {
                 groups.forEach(groupId => {

@@ -60,7 +60,7 @@ router.get('/users', async (req, res) => {
 router.get('/chats', async (req, res) => {
   try {
     const { userId1, userId2 } = req.query;
-    
+
     if (!userId1 || !userId2) {
       return res.status(400).json({ message: 'Both userId1 and userId2 are required' });
     }

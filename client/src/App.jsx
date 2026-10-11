@@ -1,7 +1,9 @@
+/* eslint-disable no-unused-vars */
+/* eslint-disable react-hooks/exhaustive-deps */
 import { useEffect, useRef, useState } from "react";
 import { connection } from "./connection";
 import { ToastContainer, toast } from "react-toastify";
-import { v4 as uuid } from "uuid";
+import { authAPI, groupsAPI } from "./api";
 
 export default function App() {
   const socket = useRef(null);
@@ -62,13 +64,13 @@ export default function App() {
 
     socket.current.on("userOnline", ({ userId, username }) => {
       setUsers((prev) =>
-        prev.map((u) => (u._id === userId ? { ...u, isOnline: true } : u))
+        prev.map((u) => (u._id === userId ? { ...u, isOnline: true } : u)),
       );
     });
 
     socket.current.on("userOffline", ({ userId }) => {
       setUsers((prev) =>
-        prev.map((u) => (u._id === userId ? { ...u, isOnline: false } : u))
+        prev.map((u) => (u._id === userId ? { ...u, isOnline: false } : u)),
       );
     });
 
@@ -155,8 +157,7 @@ export default function App() {
   // FETCH USERS
   const fetchUsers = async () => {
     try {
-      const response = await fetch("http://localhost:3000/api/auth/users");
-      const data = await response.json();
+      const data = await authAPI.getUsers();
       setUsers(data);
     } catch (error) {
       console.error("Error fetching users:", error);
@@ -166,10 +167,7 @@ export default function App() {
   // FETCH CHAT HISTORY
   const fetchChatHistory = async (otherUserId) => {
     try {
-      const response = await fetch(
-        `http://localhost:3000/api/auth/chats?userId1=${userId}&userId2=${otherUserId}`
-      );
-      const data = await response.json();
+      const data = await authAPI.getChatHistory(userId, otherUserId);
 
       const formattedChats = data.map((chat) => ({
         id: chat._id,
@@ -189,8 +187,7 @@ export default function App() {
   // FETCH GROUPS
   const fetchGroups = async (currentUserId = userId) => {
     try {
-      const response = await fetch(`http://localhost:3000/api/groups/list?userId=${currentUserId}`);
-      const data = await response.json();
+      const data = await groupsAPI.getGroups(currentUserId);
       setGroups(data);
     } catch (error) {
       console.error("Error fetching groups:", error);
@@ -200,8 +197,7 @@ export default function App() {
   // FETCH GROUP MESSAGES
   const fetchGroupMessages = async (groupId) => {
     try {
-      const response = await fetch(`http://localhost:3000/api/groups/messages?groupId=${groupId}`);
-      const data = await response.json();
+      const data = await groupsAPI.getGroupMessages(groupId);
 
       const formattedMessages = data.map((msg) => ({
         id: msg._id,
@@ -228,19 +224,13 @@ export default function App() {
     }
 
     try {
-      const response = await fetch("http://localhost:3000/api/groups/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: groupName,
-          memberIds: selectedMembers,
-          createdBy: userId,
-        }),
-      });
+      const data = await groupsAPI.createGroup(
+        groupName,
+        selectedMembers,
+        userId,
+      );
 
-      const data = await response.json();
-
-      if (response.ok) {
+      if (data._id) {
         toast.success("Group created successfully");
         setShowGroupModal(false);
         setGroupName("");
@@ -261,18 +251,12 @@ export default function App() {
     const password = inputPassword.trim();
     if (!name || !password) return;
 
-    const endpoint = isLogin ? "/api/auth/login" : "/api/auth/register";
-    
     try {
-      const response = await fetch(`http://localhost:3000${endpoint}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: name, password }),
-      });
+      const data = isLogin
+        ? await authAPI.login(name, password)
+        : await authAPI.register(name, password);
 
-      const data = await response.json();
-
-      if (response.ok) {
+      if (data.userId) {
         setUserId(data.userId);
         setUserName(data.username);
         setShowAuthPopup(false);
@@ -327,9 +311,13 @@ export default function App() {
         {showAuthPopup && (
           <div className="fixed inset-0 flex items-center justify-center bg-black/20 backdrop-blur-sm">
             <div className="bg-white p-6 rounded-2xl shadow-xl w-full max-w-md">
-              <h2 className="text-xl font-semibold">{isLogin ? "Login" : "Register"}</h2>
+              <h2 className="text-xl font-semibold">
+                {isLogin ? "Login" : "Register"}
+              </h2>
               <p className="text-gray-500 text-sm mt-1">
-                {isLogin ? "Enter your credentials to continue" : "Create a new account"}
+                {isLogin
+                  ? "Enter your credentials to continue"
+                  : "Create a new account"}
               </p>
 
               <form onSubmit={handleAuth} className="mt-4 space-y-3">
@@ -353,7 +341,9 @@ export default function App() {
               </form>
 
               <p className="text-center text-sm text-gray-500 mt-4">
-                {isLogin ? "Don't have an account? " : "Already have an account? "}
+                {isLogin
+                  ? "Don't have an account? "
+                  : "Already have an account? "}
                 <button
                   onClick={() => setIsLogin(!isLogin)}
                   className="text-green-500 hover:underline"
@@ -384,7 +374,9 @@ export default function App() {
                 <div className="p-3 rounded-lg mb-2 bg-green-50 border border-green-200">
                   <div className="flex items-center gap-2">
                     <div className="w-3 h-3 rounded-full bg-green-500" />
-                    <span className="text-sm font-medium">{userName} (You)</span>
+                    <span className="text-sm font-medium">
+                      {userName} (You)
+                    </span>
                   </div>
                   <span className="text-xs text-gray-500 ml-5">Online</span>
                 </div>
@@ -414,10 +406,14 @@ export default function App() {
                             user.isOnline ? "bg-green-500" : "bg-gray-400"
                           }`}
                         />
-                        <span className="text-sm font-medium">{user.username}</span>
+                        <span className="text-sm font-medium">
+                          {user.username}
+                        </span>
                       </div>
                       <span className="text-xs text-gray-500 ml-5">
-                        {user.isOnline ? "Online" : `Last seen: ${formatTime(user.lastSeen)}`}
+                        {user.isOnline
+                          ? "Online"
+                          : `Last seen: ${formatTime(user.lastSeen)}`}
                       </span>
                     </div>
                   ))}
@@ -425,7 +421,9 @@ export default function App() {
                 {/* Groups */}
                 {groups.length > 0 && (
                   <div className="mt-4 pt-4 border-t border-t-gray-300">
-                    <h3 className="text-xs font-semibold text-gray-500 mb-2 px-2">GROUPS</h3>
+                    <h3 className="text-xs font-semibold text-gray-500 mb-2 px-2">
+                      GROUPS
+                    </h3>
                     {groups.map((group) => (
                       <div
                         key={group._id}
@@ -445,7 +443,9 @@ export default function App() {
                       >
                         <div className="flex items-center gap-2">
                           <div className="w-3 h-3 rounded-full bg-blue-500" />
-                          <span className="text-sm font-medium">{group.name}</span>
+                          <span className="text-sm font-medium">
+                            {group.name}
+                          </span>
                         </div>
                         <span className="text-xs text-gray-500 ml-5">
                           {group.members.length} members
@@ -466,8 +466,8 @@ export default function App() {
                     {selectedUser
                       ? selectedUser.username
                       : selectedGroup
-                      ? selectedGroup.name
-                      : "Select a user or group to chat"}
+                        ? selectedGroup.name
+                        : "Select a user or group to chat"}
                   </h1>
                   {typers.length > 0 && (
                     <p className="text-[10px] text-gray-500">
@@ -570,10 +570,13 @@ export default function App() {
                           checked={selectedMembers.includes(user._id)}
                           onChange={(e) => {
                             if (e.target.checked) {
-                              setSelectedMembers([...selectedMembers, user._id]);
+                              setSelectedMembers([
+                                ...selectedMembers,
+                                user._id,
+                              ]);
                             } else {
                               setSelectedMembers(
-                                selectedMembers.filter((id) => id !== user._id)
+                                selectedMembers.filter((id) => id !== user._id),
                               );
                             }
                           }}
