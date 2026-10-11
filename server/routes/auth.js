@@ -1,5 +1,6 @@
 import express from 'express';
 import User from '../models/User.js';
+import Chat from '../models/Chat.js';
 
 const router = express.Router();
 
@@ -51,6 +52,27 @@ router.get('/users', async (req, res) => {
   try {
     const users = await User.find().select('username isOnline lastSeen').sort({ username: 1 });
     res.json(users);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+router.get('/chats', async (req, res) => {
+  try {
+    const { userId1, userId2 } = req.query;
+    
+    if (!userId1 || !userId2) {
+      return res.status(400).json({ message: 'Both userId1 and userId2 are required' });
+    }
+
+    const chats = await Chat.find({
+      $or: [
+        { sender: userId1, receiver: userId2 },
+        { sender: userId2, receiver: userId1 }
+      ]
+    }).sort({ createdAt: 1 }).populate('sender receiver', 'username');
+
+    res.json(chats);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
