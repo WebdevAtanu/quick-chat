@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { connection } from "./connection";
 import { ToastContainer, toast } from "react-toastify";
+import { v4 as uuid } from "uuid";
 import { authAPI, groupsAPI } from "./api";
 
 export default function App() {
@@ -10,6 +11,7 @@ export default function App() {
   const timer = useRef(null);
   const bottomRef = useRef(null);
   const selectedGroupRef = useRef(null);
+  const selectedUserRef = useRef(null);
 
   const [userName, setUserName] = useState("");
   const [userId, setUserId] = useState("");
@@ -32,6 +34,8 @@ export default function App() {
     return localStorage.getItem("darkMode") === "true";
   });
   const [showSidebar, setShowSidebar] = useState(false);
+  const [unreadCounts, setUnreadCounts] = useState({});
+  const [groupUnreadCounts, setGroupUnreadCounts] = useState({});
 
   useEffect(() => {
     localStorage.setItem("darkMode", darkMode);
@@ -46,6 +50,10 @@ export default function App() {
     selectedGroupRef.current = selectedGroup;
   }, [selectedGroup]);
 
+  useEffect(() => {
+    selectedUserRef.current = selectedUser;
+  }, [selectedUser]);
+
   // SOCKET SETUP
   useEffect(() => {
     socket.current = connection();
@@ -59,9 +67,30 @@ export default function App() {
         if (prev.has(msg.id)) return prev;
         const newSet = new Set(prev);
         newSet.add(msg.id);
-        setMessages((prevMsgs) => [...prevMsgs, msg]);
+        
+        // Only add message to current chat if it's from selected user or current user
+        if (selectedUserRef.current?._id === msg.senderId || msg.senderId === userId) {
+          setMessages((prevMsgs) => [...prevMsgs, msg]);
+        }
+        
         return newSet;
       });
+
+      // Update unread count and move user to top (only for incoming messages)
+      if (msg.senderId !== userId) {
+        setUnreadCounts((prev) => ({
+          ...prev,
+          [msg.senderId]: (prev[msg.senderId] || 0) + 1,
+        }));
+
+        setUsers((prev) => {
+          const senderUser = prev.find((u) => u._id === msg.senderId);
+          if (!senderUser) return prev;
+          
+          const otherUsers = prev.filter((u) => u._id !== msg.senderId);
+          return [senderUser, ...otherUsers];
+        });
+      }
     });
 
     socket.current.on("typing", ({ username }) => {
@@ -99,6 +128,20 @@ export default function App() {
           newSet.add(msg.id);
           setMessages((prevMsgs) => [...prevMsgs, msg]);
           return newSet;
+        });
+      } else {
+        // If a different group has a message, update unread count and move it to top
+        setGroupUnreadCounts((prev) => ({
+          ...prev,
+          [msg.groupId]: (prev[msg.groupId] || 0) + 1,
+        }));
+
+        setGroups((prev) => {
+          const msgGroup = prev.find((g) => g._id === msg.groupId);
+          if (!msgGroup) return prev;
+          
+          const otherGroups = prev.filter((g) => g._id !== msg.groupId);
+          return [msgGroup, ...otherGroups];
         });
       }
     });
@@ -297,14 +340,38 @@ export default function App() {
   function sendMessage() {
     const msgText = text.trim();
     if (!msgText || !socket.current) return;
+    let newId = uuid();
 
     if (selectedUser) {
+      const msg = {
+        id: newId,
+        sender: userName,
+        senderId: userId,
+        text: msgText,
+        ts: Date.now(),
+      };
+
+      setMessages((prev) => [...prev, msg]);
+      setMessageIds((prev) => new Set(prev).add(newId));
+
       socket.current.emit("chatMessage", {
         senderId: userId,
         receiverId: selectedUser._id,
         message: msgText,
       });
     } else if (selectedGroup) {
+      const msg = {
+        id: newId,
+        groupId: selectedGroup._id,
+        sender: userName,
+        senderId: userId,
+        text: msgText,
+        ts: Date.now(),
+      };
+
+      setMessages((prev) => [...prev, msg]);
+      setMessageIds((prev) => new Set(prev).add(newId));
+
       socket.current.emit("groupMessage", {
         groupId: selectedGroup._id,
         senderId: userId,
@@ -452,6 +519,7 @@ export default function App() {
                         setMessageIds(new Set());
                         fetchChatHistory(user._id);
                         setShowSidebar(false);
+                        setUnreadCounts((prev) => ({ ...prev, [user._id]: 0 }));
                       }}
                       className={`p-3 rounded-lg cursor-pointer mb-2 ${
                         selectedUser?._id === user._id
@@ -459,15 +527,22 @@ export default function App() {
                           : "hover:bg-gray-100"
                       }`}
                     >
-                      <div className="flex items-center gap-2">
-                        <div
-                          className={`w-3 h-3 rounded-full ${
-                            user.isOnline ? "bg-green-500" : "bg-gray-400"
-                          }`}
-                        />
-                        <span className="text-sm font-medium">
-                          {user.username}
-                        </span>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div
+                            className={`w-3 h-3 rounded-full ${
+                              user.isOnline ? "bg-green-500" : "bg-gray-400"
+                            }`}
+                          />
+                          <span className="text-sm font-medium">
+                            {user.username}
+                          </span>
+                        </div>
+                        {unreadCounts[user._id] > 0 && (
+                          <span className="bg-red-500 text-white text-xs rounded-full px-2 py-1 min-w-[20px] text-center">
+                            {unreadCounts[user._id]}
+                          </span>
+                        )}
                       </div>
                       <span className="text-xs text-gray-500 ml-5">
                         {user.isOnline
@@ -494,6 +569,7 @@ export default function App() {
                           fetchGroupMessages(group._id);
                           socket.current.emit("joinGroup", group._id);
                           setShowSidebar(false);
+                          setGroupUnreadCounts((prev) => ({ ...prev, [group._id]: 0 }));
                         }}
                         className={`p-3 rounded-lg cursor-pointer mb-2 ${
                           selectedGroup?._id === group._id
@@ -501,11 +577,18 @@ export default function App() {
                             : "hover:bg-gray-100"
                         }`}
                       >
-                        <div className="flex items-center gap-2">
-                          <div className="w-3 h-3 rounded-full bg-blue-500" />
-                          <span className="text-sm font-medium">
-                            {group.name}
-                          </span>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className="w-3 h-3 rounded-full bg-blue-500" />
+                            <span className="text-sm font-medium">
+                              {group.name}
+                            </span>
+                          </div>
+                          {groupUnreadCounts[group._id] > 0 && (
+                            <span className="bg-red-500 text-white text-xs rounded-full px-2 py-1 min-w-[20px] text-center">
+                              {groupUnreadCounts[group._id]}
+                            </span>
+                          )}
                         </div>
                         <span className="text-xs text-gray-500 ml-5">
                           {group.members.length} members
